@@ -1,0 +1,732 @@
+/*
+* This demo program shows how to use the FiddlerCore library.
+*/
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
+using System.Threading;
+using System.Net.Sockets;
+using Fiddler;
+
+using Telerik.NetworkConnections;
+
+namespace CaptureTraffic
+{
+   
+    internal class Program
+    {
+
+        class WebToolkit
+        {
+            /// <summary>
+            /// Url结构
+            /// </summary>
+            struct UrlInfo
+            {
+                public string Host;
+                public int Port;
+                public string File;
+                public string Body;
+            }
+
+            /// <summary>
+            /// 解析URL
+            /// </summary>
+            /// <param name="url"></param>
+            /// <returns></returns>
+            private static UrlInfo ParseURL(string url)
+            {
+                UrlInfo urlInfo = new UrlInfo();
+                string[] strTemp = null;
+                urlInfo.Host = "";
+                urlInfo.Port = 80;
+                urlInfo.File = "/";
+                urlInfo.Body = "";
+                int intIndex = url.ToLower().IndexOf("http://");
+                if (intIndex != -1)
+                {
+                    url = url.Substring(7);
+                    intIndex = url.IndexOf("/");
+                    if (intIndex == -1)
+                    {
+                        urlInfo.Host = url;
+                    }
+                    else
+                    {
+                        urlInfo.Host = url.Substring(0, intIndex);
+                        url = url.Substring(intIndex);
+                        intIndex = urlInfo.Host.IndexOf(":");
+                        if (intIndex != -1)
+                        {
+                            strTemp = urlInfo.Host.Split(':');
+                            urlInfo.Host = strTemp[0];
+                            int.TryParse(strTemp[1], out urlInfo.Port);
+                        }
+                        intIndex = url.IndexOf("?");
+                        if (intIndex == -1)
+                        {
+                            urlInfo.File = url;
+                        }
+                        else
+                        {
+                            strTemp = url.Split('?');
+                            urlInfo.File = strTemp[0];
+                            urlInfo.Body = strTemp[1];
+                        }
+                    }
+                }
+                return urlInfo;
+            }
+
+            /// <summary>
+            /// 发出请求并获取响应
+            /// </summary>
+            /// <param name="host"></param>
+            /// <param name="port"></param>
+            /// <param name="body"></param>
+            /// <param name="encode"></param>
+            /// <returns></returns>
+            private static string GetResponse(string host, int port, string body, Encoding encode)
+            {
+                string strResult = string.Empty;
+                byte[] bteSend = Encoding.ASCII.GetBytes(body);
+                byte[] bteReceive = new byte[1024];
+                int intLen = 0;
+
+                using (Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+                {
+                    try
+                    {
+                        socket.Connect(host, port);
+                        if (socket.Connected)
+                        {
+                            socket.Send(bteSend, bteSend.Length, 0);
+                            while ((intLen = socket.Receive(bteReceive, bteReceive.Length, 0)) > 0)
+                            {
+                                strResult += encode.GetString(bteReceive, 0, intLen);
+                            }
+                        }
+                        socket.Close();
+                    }
+                    catch { }
+                }
+
+                return strResult;
+            }
+
+            /// <summary>
+            /// GET请求
+            /// </summary>
+            /// <param name="url"></param>
+            /// <param name="encode"></param>
+            /// <returns></returns>
+            public static string Get(string url, Encoding encode)
+            {
+                UrlInfo urlInfo = ParseURL(url);
+                //Console.WriteLine(urlInfo.File+","+urlInfo.Body+","+ urlInfo.Host+","+urlInfo.Port);
+                string strRequest = string.Format("GET {0}?{1} HTTP/1.1\r\nHost:{2}:{3}\r\nConnection:Close\r\n\r\n", urlInfo.File, urlInfo.Body, urlInfo.Host, urlInfo.Port.ToString());
+                Console.WriteLine(strRequest);
+                return GetResponse(urlInfo.Host, urlInfo.Port, strRequest, encode);
+            }
+
+            /// <summary>
+            /// POST请求
+            /// </summary>
+            /// <param name="url"></param>
+            /// <param name="encode"></param>
+            /// <returns></returns>
+            public static string Post(string url, Encoding encode)
+            {
+                UrlInfo urlInfo = ParseURL(url);
+                string strRequest = string.Format("POST {0} HTTP/1.1\r\nHost:{1}:{2}\r\nContent-Length:{3}\r\nContent-Type:application/x-www-form-urlencoded\r\nConnection:Close\r\n\r\n{4}", urlInfo.File, urlInfo.Host, urlInfo.Port.ToString(), urlInfo.Body.Length, urlInfo.Body);
+                return GetResponse(urlInfo.Host, urlInfo.Port, strRequest, encode);
+            }
+        }
+
+            public static bool sendSocket()
+        {
+            int mPort = 443;
+            string mURL = "www.baidu.com";
+            Socket mSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            mSocket.Connect(mURL, mPort);
+            //"GET {0}?{1} HTTP/1.1\r\nHost:{2}:{3}\r\nConnection:Close\r\n\r\n";
+            string msg = "GET /? HTTP/1.1\r\nHost:www.baidu.com:80\r\nConnection:Close\r\n\r\n";
+            mSocket.Send(Encoding.UTF8.GetBytes(msg.ToString()));
+            byte[] buff = new byte[1024];
+            int cnt = mSocket.Receive(buff);
+            string revStr = Encoding.UTF8.GetString(buff, 0, cnt);
+            Console.WriteLine(cnt+" "+revStr+" "+buff.ToString());
+            return false;
+        }
+
+      
+        // NOTE: In the next line, you can pass 0 for the port (instead of 8877) to have FiddlerCore auto-select an available port
+        private const ushort fiddlerCoreListenPort = 8877;
+
+        private static readonly ICollection<Session> sessions = new List<Session>();
+        private static readonly ReaderWriterLockSlim sessionsLock = new ReaderWriterLockSlim();
+
+        private static readonly string assemblyDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+
+        private static void Main()
+        {
+          //  sendSocket();
+            Console.WriteLine(WebToolkit.Get("http://www.baidu.com", Encoding.Default));
+            Console.WriteLine(WebToolkit.Post("http://www.baidu.com", Encoding.Default));
+           // Console.ReadKey();
+
+            // sendSocket();
+
+            //string t= Console.ReadLine();
+            //Console.WriteLine(changeURL("https://www.baidu.com/s?wd=5&rsv_spt=1&rsv_iqid=0x8b79b4600001ebdd&issp=1&f=8&rsv_bp=1&rsv_idx=2&ie=utf-8&tn=baiduhome_pg&rsv_enter=1&rsv_dl=tb&rsv_sug3=2&rsv_sug2=0&rsv_btype=i&inputT=297&rsv_sug4=529&rsv_jmp=fail", "GG"));
+            Console.WriteLine("【pwd】 "+assemblyDirectory+"\n");
+
+            AttachEventListeners();
+
+            EnsureRootCertificate();
+           
+            StartupFiddlerCore();
+            Console.WriteLine("--IS Proxy? - {0}", FiddlerApplication.IsSystemProxy());
+            ExecuteUserCommands();
+            Quit();
+            
+            Console.Read();
+        }
+        private static void UpdateSearchKey(String skey)
+        {
+            FiddlerApplication.BeforeRequest += session =>
+            {
+                // In order to enable response tampering, buffering mode MUST
+                // be enabled; this allows FiddlerCore to permit modification of
+                // the response in the BeforeResponse handler rather than streaming
+                // the response to the client as the response comes in.
+                session.bBufferResponse = false;
+
+                // Set this property if you want FiddlerCore to automatically authenticate by
+                // answering Digest/Negotiate/NTLM/Kerberos challenges itself
+                // session["X-AutoAuth"] = "(default)";
+
+                try
+                {
+                    sessionsLock.EnterWriteLock();
+                    if (session.fullUrl.Contains("https://www.baidu.com/s?"))
+                    {
+                       
+                        if (session.oRequest.headers.HTTPMethod == "GET")
+                        {
+                            Console.WriteLine("----------------got the URL----------------");
+                            Console.WriteLine(session.fullUrl);
+                            Console.WriteLine("{0}", session.oRequest.headers.HTTPMethod);
+                            // string beginrt = session.Timers.ClientBeginRequest.ToString();
+                            //Console.WriteLine("The time client begins request: "+ beginrt);
+                            String ss = "https://www.baidu.com/s?ie=UTF-8&wd=" + skey;
+
+                            session.fullUrl = ss;
+                            Console.WriteLine(session.fullUrl);
+                        }
+                    }
+                    sessions.Add(session);
+
+                }
+                finally
+                {
+                    sessionsLock.ExitWriteLock();
+                }
+            };
+        }
+
+        private static void AttachEventListeners()
+        {
+            //
+            // It is important to understand that FiddlerCore calls event handlers on session-handling
+            // background threads.  If you need to properly synchronize to the UI-thread (say, because
+            // you're adding the sessions to a list view) you must call .Invoke on a delegate on the 
+            // window handle.
+            // 
+            // If you are writing to a non-threadsafe data structure (e.g. List<T>) you must
+            // use a Monitor or other mechanism to ensure safety.
+            //
+
+            // Simply echo notifications to the console.  Because Fiddler.CONFIG.QuietMode=true 
+            // by default, we must handle notifying the user ourselves.
+            FiddlerApplication.OnNotification += (o, nea) => Console.WriteLine($"** NotifyUser: {nea.NotifyString}");
+
+            FiddlerApplication.Log.OnLogString += (o, lea) => Console.WriteLine($"** LogString: {lea.LogString}");
+
+            FiddlerApplication.BeforeRequest += session =>
+            {
+                // In order to enable response tampering, buffering mode MUST
+                // be enabled; this allows FiddlerCore to permit modification of
+                // the response in the BeforeResponse handler rather than streaming
+                // the response to the client as the response comes in.
+                session.bBufferResponse = false;
+           
+                // Set this property if you want FiddlerCore to automatically authenticate by
+                // answering Digest/Negotiate/NTLM/Kerberos challenges itself
+                // session["X-AutoAuth"] = "(default)";
+
+                try
+                {
+                    sessionsLock.EnterWriteLock();
+                    if (session.fullUrl.Contains("https://www.baidu.com")) {
+                        // {
+                        //    if (session.oRequest.headers.HTTPMethod == "GET")
+                        //   {
+                        //         Console.WriteLine("----------------got the URL----------------");
+                        //         Console.WriteLine(session.fullUrl);
+                        //        Console.WriteLine("{0}", session.oRequest.headers.HTTPMethod);
+                        // string beginrt = session.Timers.ClientBeginRequest.ToString();
+                        //Console.WriteLine("The time client begins request: "+ beginrt);
+                        //        String ss = "https://www.baidu.com/s?ie=UTF-8&wd="+skey;
+
+                        //           session.fullUrl = "https://cn.bing.com";
+                        //     Console.WriteLine(session.fullUrl);
+                        ;
+                          }
+                
+                        sessions.Add(session);
+         
+                }
+                finally
+                {
+                    sessionsLock.ExitWriteLock();
+                }
+            };
+
+            /*
+            // The following event allows you to examine every response buffer read by Fiddler. Note that this isn't useful for the vast majority of
+            // applications because the raw buffer is nearly useless; it's not decompressed, it includes both headers and body bytes, etc.
+            //
+            // This event is only useful for a handful of applications which need access to a raw, unprocessed byte-stream
+            Fiddler.FiddlerApplication.OnReadResponseBuffer += (o, rrea) =>
+            {
+                // NOTE: arrDataBuffer is a fixed-size array. Only bytes 0 to iCountOfBytes should be read/manipulated.
+                //
+                // Just for kicks, lowercase every byte. Note that this will obviously break any binary content.
+                for (int i = 0; i < e.iCountOfBytes; i++)
+                {
+                    if ((e.arrDataBuffer[i] > 0x40) && (e.arrDataBuffer[i] < 0x5b))
+                    {
+                        e.arrDataBuffer[i] = (byte)(e.arrDataBuffer[i] + (byte)0x20);
+                    }
+                }
+                Console.WriteLine(String.Format("Read {0} response bytes for session {1}", e.iCountOfBytes, e.sessionOwner.id));
+            }
+            */
+
+            
+            Fiddler.FiddlerApplication.BeforeResponse += session => {
+                // Console.WriteLine($"{session.id}:HTTP {session.responseCode} for {session.fullUrl}");
+                // Uncomment the following two statements to decompress/unchunk the
+                // HTTP response and subsequently modify any HTTP responses to replace 
+                // instances of the word "Telerik" with "Progress". You MUST also
+                // set session.bBufferResponse = true inside the BeforeRequest event handler above.
+                //
+                //
+                session.bBufferResponse = true;
+                //session.utilSetResponseBody("??????/");
+                //   Console.WriteLine("【Receive】");
+                //  Console.WriteLine(session.ResponseBody.ToString());
+
+                if (session.fullUrl.Contains("baidu"))
+                {
+                   
+                    //Console.WriteLine("Find BAIDU!");
+                    session.utilDecodeResponse();
+                    string req = session.GetResponseBodyAsString();
+                    //Console.WriteLine(req);
+                    string requestText = System.Text.Encoding.UTF8.GetString(session.ResponseBody);
+                    // session.ResponseBody.ToString().Replace("baidu", "qiandu");
+                    //Console.WriteLine("【】 "+requestText);
+
+
+                    //  Console.WriteLine(requestText);
+                    if (req.Contains("cnblogs")&&req.Contains("帅胡"))
+                    {
+                        //Console.WriteLine("【】】】】【】【【【[found]!!!!!");
+                        System.IO.File.WriteAllText("C:\\Users\\87179\\Desktop\\book1.txt", req, Encoding.UTF8);
+                     
+                        req = req.Replace("帅胡", "300000");
+                        System.IO.File.WriteAllText("C:\\Users\\87179\\Desktop\\book3.txt", req,Encoding.UTF8);
+                        session.utilSetResponseBody(req);
+                        string re = session.GetResponseBodyAsString();
+                        
+                        System.IO.File.WriteAllText("C:\\Users\\87179\\Desktop\\book2.txt", re, Encoding.UTF8);
+                        // session.utilSetResponseBody("??????/");
+
+                       // Console.WriteLine(req);
+                        //Console.WriteLine(System.Text.Encoding.UTF8.GetString(session.ResponseBody));
+                    }
+                }
+                //Console.WriteLine(session.ResponseBody.ToString());
+                //session.utilDecodeResponse(); session.utilReplaceInResponse("Telerik", "Progress");
+            };
+            
+
+            FiddlerApplication.AfterSessionComplete += session =>
+            {
+                //Console.WriteLine($"Finished session: {oS.fullUrl}");
+
+                int sessionsCount = 0;
+                try
+                {
+                    sessionsLock.EnterReadLock();
+                    
+                    sessionsCount = sessions.Count;
+                }
+                finally
+                {
+                    sessionsLock.ExitReadLock();
+                }
+
+                if (sessionsCount == 0)
+                    return;
+
+                Console.Title = $"Session list contains: {sessionsCount} sessions";
+            };
+
+            // Tell the system console to handle CTRL+C by calling our method that
+            // gracefully shuts down the FiddlerCore.
+            //
+            // Note, this doesn't handle the case where the user closes the window with the close button.
+            Console.CancelKeyPress += (o, ccea) =>
+            {
+                Quit();
+            };
+        }
+
+        private static void EnsureRootCertificate()
+        {
+           
+            BCCertMaker.BCCertMaker certProvider = new BCCertMaker.BCCertMaker();
+            CertMaker.oCertProvider = certProvider;
+
+            // On first run generate root certificate using the loaded provider, then re-use it for subsequent runs.
+            string rootCertificatePath = Path.Combine(assemblyDirectory, "..", "..", "RootCertificate.p12");
+            string rootCertificatePassword = "S0m3T0pS3cr3tP4ssw0rd";
+            if (!File.Exists(rootCertificatePath))
+            {
+                certProvider.CreateRootCertificate();
+                certProvider.WriteRootCertificateAndPrivateKeyToPkcs12File(rootCertificatePath, rootCertificatePassword);
+            }
+            else
+            {
+                certProvider.ReadRootCertificateAndPrivateKeyFromPkcs12File(rootCertificatePath, rootCertificatePassword);
+            }
+
+            // Once the root certificate is set up, ensure it's trusted.
+            if (!CertMaker.rootCertIsTrusted())
+            {
+                CertMaker.trustRootCert();
+            }
+           
+        }
+
+        private static void StartupFiddlerCore()
+        {
+            FiddlerCoreStartupSettings startupSettings =
+                new FiddlerCoreStartupSettingsBuilder()
+                    .ListenOnPort(fiddlerCoreListenPort)
+                    .RegisterAsSystemProxy()
+                    .ChainToUpstreamGateway()
+                    .DecryptSSL()
+                    .OptimizeThreadPool()
+                    .Build();
+        
+  
+            FiddlerApplication.Startup(startupSettings);
+
+            FiddlerApplication.Log.LogString($"Created endpoint listening on port {CONFIG.ListenPort}");
+        }
+
+        private static void ExecuteUserCommands()
+        {
+            bool done = false;
+            do
+            {
+                Console.WriteLine("\n【Command】:\n");
+                Console.WriteLine("Enter a command [C=Clear; L=List; W=write SAZ; R=read SAZ; Q=Quit;S= UpdateSearchKey]:");
+                Console.Write(">");
+                ConsoleKeyInfo cki = Console.ReadKey();
+                Console.WriteLine();
+                switch (char.ToLower(cki.KeyChar))
+                {
+                    case 'c':
+                        try
+                        {
+                            sessionsLock.EnterWriteLock();
+                            sessions.Clear();
+                        }
+                        finally
+                        {
+                            sessionsLock.ExitWriteLock();
+                        }
+
+                        Console.Title = $"Session list contains: 0 sessions";
+
+                        WriteCommandResponse("Clear...");
+                        FiddlerApplication.Log.LogString("Cleared session list.");
+                        break;
+
+                    case 'l':
+                        WriteSessions(sessions);
+                        break;
+
+                    case 'w':
+                        string password = null;
+                        Console.WriteLine("Password Protect this Archive (Y/N)?");
+                        ConsoleKeyInfo yesNo = Console.ReadKey();
+                        if ((yesNo.KeyChar == 'y') || (yesNo.KeyChar == 'Y'))
+                        {
+                            Console.WriteLine($"{Environment.NewLine}Enter the password:");
+                            password = Console.ReadLine();
+                        }
+
+                        Console.WriteLine();
+
+                        SaveSessionsToDesktop(sessions, password);
+                        break;
+
+                    case 'r':
+                        ReadSessions(sessions);
+
+                        int sessionsCount;
+                        try
+                        {
+                            sessionsLock.EnterReadLock();
+                            sessionsCount = sessions.Count;
+                        }
+                        finally
+                        {
+                            sessionsLock.ExitReadLock();
+                        }
+
+                        Console.Title = $"Session list contains: {sessionsCount} sessions";
+
+                        break;
+
+                    case 's':
+                     
+                        Console.WriteLine("Please input the search you want: ");
+                        Console.Write(">");
+                        String skey = Console.ReadLine();
+                        UpdateSearchKey(skey);
+
+                        break;
+                    case 'q':
+                        done = true;
+                        break;
+                }
+            } while (!done);
+        }
+
+        private static void Quit()
+        {
+            WriteCommandResponse("Shutting down...");
+
+            FiddlerApplication.Shutdown();
+        }
+
+        private static void SaveSessionsToDesktop(IEnumerable<Session> sessions, string password)
+        {
+            string filename = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory) +
+                Path.DirectorySeparatorChar + DateTime.Now.ToString("hh-mm-ss") + ".saz";
+            string filename_txt = "C:\\Users\\87179\\Desktop\\";
+            filename_txt += DateTime.Now.ToString("hh-mm-ss") +".txt";
+
+            string response;
+            try
+            {
+                sessionsLock.EnterReadLock();
+                if (sessions.Any())
+                {
+                    bool success = Utilities.WriteSessionArchive(filename, sessions.ToArray(), password, false);
+                    response = $"{(success ? "Wrote" : "Failed to save")}: {filename}";
+                    foreach(Session es in sessions) {
+                        System.IO.File.WriteAllText(filename_txt, es.ToString(), Encoding.UTF8);
+                   }
+                }
+                else
+                {
+                    response = "No sessions have been captured.";
+                }
+            }
+            catch (Exception ex)
+            {
+                response = $"Save failed: {ex.Message}";
+            }
+            finally
+            {
+                sessionsLock.ExitReadLock();
+            }
+
+            WriteCommandResponse(response);
+        }
+        static void Print(double t,double sum,string s)
+        {
+            if (sum == 0) { Console.WriteLine("No Session data loaded."); return; }
+            Console.Write(s + " : ");
+            for (int i = 1; i <= t / (1.0 * sum) * 100; i++)
+            {
+                Console.Write("█");
+            }
+            for (int i = 1; i <= 60 - t / (1.0 * sum) * 100; i++)
+            {
+                Console.Write("|");
+            }
+            double tmp = (t / (1.0 * sum) * 100);
+            Console.WriteLine(String.Format("{0:N2}",tmp)+" %");
+            Console.WriteLine();
+            return;
+        }
+
+        private static void ReadSessions(ICollection<Session> sessions)
+        {
+            string sazFilename = Environment.GetFolderPath(Environment.SpecialFolder.Desktop) + Path.DirectorySeparatorChar +
+                "ToLoad.saz";
+
+            Session[] loaded = Utilities.ReadSessionArchive(sazFilename, false, "", (file, part) =>
+            {
+                Console.WriteLine($"Enter the password for { part } (or just hit Enter to cancel):");
+                string sResult = Console.ReadLine();
+                Console.WriteLine();
+                return sResult;
+            });
+
+            if (loaded == null || loaded.Length == 0)
+            {
+                WriteCommandResponse($"Could not load sessions from {sazFilename}");
+                return;
+            }
+
+            try
+            {
+                sessionsLock.EnterWriteLock();
+                for (int i = 0; i < loaded.Length; i++)
+                {
+                    sessions.Add(loaded[i]);
+                }
+            }
+            finally
+            {
+                sessionsLock.ExitWriteLock();
+            }
+
+            WriteCommandResponse($"Loaded: {loaded.Length} sessions.");
+        }
+
+        //List Scessions
+        private static void WriteCommandResponse(string s)
+        {
+            ConsoleColor oldColor = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine(s);
+            Console.ForegroundColor = oldColor;
+        }
+        
+        private static void WriteSessions(IEnumerable<Session> sessions)
+        {
+            ConsoleColor oldColor = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.White;
+            StringBuilder sb = new StringBuilder($"Session list contains:{Environment.NewLine}");
+            try
+            {
+                double sum = 0;
+                double html = 0;
+                double css = 0;
+                double js = 0;
+                double javascript = 0;
+                double plain = 0;
+                double gif = 0;
+                double png = 0;
+                double jpg = 0;
+                double other = 0;
+                Console.WriteLine("【List】\n");
+                sessionsLock.EnterReadLock();
+                foreach (Session s in sessions)
+                {
+                    // Console.WriteLine("!------------!");
+                    // Console.WriteLine(s.fullUrl);
+                    sb.AppendLine($"{s.id} {s.oRequest.headers.HTTPMethod} {Ellipsize(s.fullUrl, 60)}");
+                    sb.AppendLine($"{s.responseCode} {s.oResponse.MIMEType}");
+                    //             double t5 = (s.Timers.ServerDoneResponse - s.Timers.ClientDoneRequest).TotalMilliseconds;
+                    //            Console.WriteLine(t5);
+                   
+                    if (s.oRequest.headers.HTTPMethod == "GET")
+                    {
+                        
+                        sb.AppendLine($"{(s.Timers.ServerDoneResponse - s.Timers.ClientDoneRequest).ToString()}{Environment.NewLine}");
+                        double ti = (s.Timers.ServerDoneResponse - s.Timers.ClientDoneRequest).TotalMilliseconds;
+                        if (ti > 0)
+                        {
+                            String cur = s.oResponse.MIMEType.ToString();
+                            if (cur == "text/html") html += ti;
+                            else if (cur == "text/css") css += ti;
+                            else if (cur == "text/javascript") javascript += ti;
+                            else if (cur == "application/json") js += ti;
+                            else if (cur == "image/gif") gif += ti;
+                            else if (cur == "image/jpg" || cur == "image/jpeg") jpg += ti;
+                            else if (cur == "image/png") png += ti;
+                            else if (cur == "text/plain") plain += ti;
+                            else other += ti;
+                                Console.WriteLine("[Timer] -------"+s.oResponse.MIMEType.ToString()+" ------------- " + ti);
+                            sum += ti;
+                       }
+  
+                    }
+                    else sb.AppendLine($"{Environment.NewLine}");
+                }
+                Console.WriteLine("\n【TYPE】---------TIEM/MS\n");
+                Console.WriteLine("[TEXT/HTML]----- "+html);
+                Console.WriteLine("[TEXT/CSS]-------- " + css);
+                Console.WriteLine("[TEXT/PLAIN]----- " + plain);
+                Console.WriteLine("[IMG/GIF]----- " +gif);
+                Console.WriteLine("[IMG/JPG]-------" + jpg);
+                Console.WriteLine("[IMG/PNG]----- " + png);
+                Console.WriteLine("[APP/JS]----- " + js);
+                Console.WriteLine("[OTHERS]----- " + other);
+                Console.WriteLine("\n");
+
+                Console.WriteLine("【Statistics】\n");
+               
+                Print(html,sum,"HTML");
+                Print(css, sum, "CSS");
+                Print(plain, sum, "PLAIN");
+                Print(gif, sum, "GIF");
+                Print(png, sum, "PNG");
+                Print(jpg, sum, "JPG/JPEG");
+                Print(js, sum, "JS");
+                Print(other, sum, "OTHER");
+
+                Console.WriteLine("\n");
+                Console.WriteLine("【Total】: " + sum+"\n\n\n");
+            }
+            finally
+            {
+                sessionsLock.ExitReadLock();
+            }
+            //PRINT
+            Console.Write(sb.ToString());
+            Console.ForegroundColor = oldColor;
+        }
+
+        private static string Ellipsize(string text, int length)
+        {
+            if (Equals(text, null)) throw new ArgumentNullException(nameof(text));
+
+            const int minLength = 3;
+
+            if (length < minLength) throw new ArgumentOutOfRangeException(nameof(length), $"{nameof(length)} cannot be less than {minLength}");
+
+            if (text.Length <= length) return text;
+
+            return text.Substring(0, length - minLength) + new string('.', minLength);
+        }
+    }
+}
